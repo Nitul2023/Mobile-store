@@ -38,3 +38,121 @@
   .admin{display:none}
   .top h1{font-size:18px}
 }
+
+/* =========================================
+   DAILY SALES
+========================================= */
+
+.daily-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.daily-filter {
+  align-items: end;
+}
+
+.filter-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.filter-label input {
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+
+/* =========================================
+   DAILY SALES SUMMARY
+========================================= */
+
+.daily-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.daily-stat {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.daily-stat small {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  margin-bottom: 7px;
+}
+
+.daily-stat strong {
+  font-size: 21px;
+}
+
+
+/* =========================================
+   DAILY SALES TABLE
+========================================= */
+
+#dailySalesTable table {
+  min-width: 1100px;
+}
+
+
+/* =========================================
+   MOBILE
+========================================= */
+
+@media (max-width: 900px) {
+
+  .daily-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+}
+
+
+@media (max-width: 600px) {
+
+  .daily-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .daily-actions .btn {
+    width: 100%;
+  }
+
+  .daily-summary {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .daily-stat {
+    padding: 12px;
+  }
+
+  .daily-stat strong {
+    font-size: 17px;
+  }
+
+}
+
+
+@media (max-width: 380px) {
+
+  .daily-summary {
+    grid-template-columns: 1fr;
+  }
+
+}
