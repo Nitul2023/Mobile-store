@@ -19,18 +19,18 @@ const seed = {
     { id: 4, brandId: 5, name: 'V30', ram: '8 GB', storage: '128 GB', color: 'Green' }
   ],
   devices: [
-    { id: 1, modelId: 1, imei1: '356000000000001', imei2: '356000000000002', purchase: 28000, selling: 32000, supplier: 'ABC Distributors', date: '2026-09-01', warranty: 12, status: 'IN_STOCK' },
-    { id: 2, modelId: 1, imei1: '356000000000003', imei2: '356000000000004', purchase: 28000, selling: 32000, supplier: 'ABC Distributors', date: '2026-09-02', warranty: 12, status: 'SOLD' },
-    { id: 3, modelId: 2, imei1: '356000000000005', imei2: '356000000000006', purchase: 58000, selling: 65000, supplier: 'Apple Distributor', date: '2026-09-03', warranty: 12, status: 'IN_STOCK' },
-    { id: 4, modelId: 4, imei1: '356000000000007', imei2: '356000000000008', purchase: 25000, selling: 29000, supplier: 'Vivo Distributor', date: '2026-09-04', warranty: 12, status: 'IN_STOCK' }
+    { id: 1, modelId: 1, quantity: 1, imei1: '356000000000001', imei2: '356000000000002', purchase: 28000, selling: 32000, supplier: 'ABC Distributors', date: '2026-09-01', warranty: 12, status: 'IN_STOCK' },
+    { id: 2, modelId: 1, quantity: 1, imei1: '356000000000003', imei2: '356000000000004', purchase: 28000, selling: 32000, supplier: 'ABC Distributors', date: '2026-09-02', warranty: 12, status: 'SOLD' },
+    { id: 3, modelId: 2, quantity: 1, imei1: '356000000000005', imei2: '356000000000006', purchase: 58000, selling: 65000, supplier: 'Apple Distributor', date: '2026-09-03', warranty: 12, status: 'IN_STOCK' },
+    { id: 4, modelId: 4, quantity: 1, imei1: '356000000000007', imei2: '356000000000008', purchase: 25000, selling: 29000, supplier: 'Vivo Distributor', date: '2026-09-04', warranty: 12, status: 'IN_STOCK' }
   ],
   sales: [
     { id: 1, deviceId: 2, sale: 32000, customer: 'Walk-in Customer', phone: '', payment: 'UPI', date: '2026-09-08', profit: 4000 }
   ],
   dailySales: [],
   folderStock: [
-    { id: 1, modelId: 1, quantity: 5, purchase: 27000, selling: 32000, supplier: 'ABC Distributors', date: '2026-09-05', status: 'IN_STOCK' },
-    { id: 2, modelId: 4, quantity: 3, purchase: 25000, selling: 29000, supplier: 'Vivo Distributor', date: '2026-09-06', status: 'IN_STOCK' }
+    { id: 1, name: 'A4 Document Folder', type: 'Plastic', quantity: 25, purchase: 35, selling: 50, supplier: 'ABC Distributors', date: '2026-09-05', status: 'IN_STOCK' },
+    { id: 2, name: 'Mobile Bill Folder', type: 'File Folder', quantity: 15, purchase: 20, selling: 30, supplier: 'ABC Distributors', date: '2026-09-06', status: 'IN_STOCK' }
   ],
   suppliers: [
     { id: 1, name: 'ABC Distributors', phone: '9876543210', email: 'abc@example.com', address: 'Guwahati' },
@@ -61,7 +61,7 @@ async function getOrCreateStore() {
   if (!supabase) return null;
 
   const { data, error } = await supabase.rpc('get_or_create_my_store', {
-    p_name: 'LAXMI COMMUNICATION'
+    p_name: 'My Mobile Store'
   });
 
   if (error) throw error;
@@ -145,10 +145,10 @@ export async function initDatabase() {
   const db = {
     brands: brands.map(x => ({ id:x.id, name:x.name, status:x.status })),
     models: models.map(x => ({ id:x.id, brandId:x.brand_id, name:x.name, ram:x.ram || '', storage:x.storage || '', color:x.color || '' })),
-    devices: devices.map(x => ({ id:x.id, modelId:x.model_id, imei1:x.imei1, imei2:x.imei2 || '', purchase:Number(x.purchase || 0), selling:Number(x.selling || 0), supplier:x.supplier || '', date:x.date, warranty:Number(x.warranty || 0), status:x.status })),
+    devices: devices.map(x => ({ id:x.id, modelId:x.model_id, quantity:Number(x.quantity || 1), imei1:x.imei1 || '', imei2:x.imei2 || '', purchase:Number(x.purchase || 0), selling:Number(x.selling || 0), supplier:x.supplier || '', date:x.date, warranty:Number(x.warranty || 0), status:x.status })),
     sales: sales.map(x => ({ id:x.id, deviceId:x.device_id, sale:Number(x.sale || 0), customer:x.customer || '', phone:x.phone || '', payment:x.payment || '', date:x.date, profit:Number(x.profit || 0) })),
     dailySales: dailySales.map(x => ({ id:x.id, date:x.date, brand:x.brand || '', product:x.product || '', imei:x.imei || '', customer:x.customer || '', quantity:Number(x.quantity || 0), purchase:Number(x.purchase || 0), salePrice:Number(x.sale_price || 0), payment:x.payment || '', profit:Number(x.profit || 0), notes:x.notes || '' })),
-    folderStock: folderStock.map(x => ({ id:x.id, modelId:x.model_id, quantity:Number(x.quantity || 0), purchase:Number(x.purchase || 0), selling:Number(x.selling || 0), supplier:x.supplier || '', date:x.date, status:x.status })),
+    folderStock: folderStock.map(x => ({ id:x.id, name:x.name, type:x.type || '', quantity:Number(x.quantity || 0), purchase:Number(x.purchase || 0), selling:Number(x.selling || 0), supplier:x.supplier || '', date:x.date, status:x.status })),
     suppliers: suppliers.map(x => ({ id:x.id, name:x.name, phone:x.phone || '', email:x.email || '', address:x.address || '' }))
   };
 
@@ -189,7 +189,8 @@ export async function save(db) {
   })));
 
   await insertRows('mobile_stock', db.devices.map(x => ({
-    id:x.id, store_id:storeId, model_id:x.modelId, imei1:x.imei1, imei2:x.imei2 || '',
+    id:x.id, store_id:storeId, model_id:x.modelId, quantity:Number(x.quantity || 1),
+    imei1:x.imei1 || '', imei2:x.imei2 || '',
     purchase:Number(x.purchase || 0), selling:Number(x.selling || 0), supplier:x.supplier || '',
     date:x.date, warranty:Number(x.warranty || 0), status:x.status
   })));
@@ -201,7 +202,7 @@ export async function save(db) {
   })));
 
   await insertRows('folder_stock', db.folderStock.map(x => ({
-    id:x.id, store_id:storeId, model_id:x.modelId, quantity:Number(x.quantity || 0),
+    id:x.id, store_id:storeId, name:x.name, type:x.type || '', quantity:Number(x.quantity || 0),
     purchase:Number(x.purchase || 0), selling:Number(x.selling || 0), supplier:x.supplier || '',
     date:x.date, status:x.status
   })));
@@ -216,6 +217,79 @@ export async function save(db) {
   await insertRows('suppliers', db.suppliers.map(x => ({
     id:x.id, store_id:storeId, name:x.name, phone:x.phone || '', email:x.email || '', address:x.address || ''
   })));
+}
+
+
+export async function addModelToBrand({ brandId, name, ram = '', storage = '', color = '' }) {
+  if (!isCloudConfigured() || !supabase) {
+    const nextId = dbNextId(load().models);
+    return { id: nextId, brandId, name, ram, storage, color };
+  }
+
+  if (!storeId) await getOrCreateStore();
+
+  const { data: existing, error: maxError } = await supabase
+    .from('models')
+    .select('id')
+    .eq('store_id', storeId);
+
+  if (maxError) throw maxError;
+
+  // Always use the first available sequential ID: 1, 2, 3, 4, ...
+  // This prevents old timestamp IDs from causing new IDs such as 178940....
+  const usedIds = new Set(
+    (existing || [])
+      .map(row => Number(row.id))
+      .filter(Number.isFinite)
+  );
+
+  let nextId = 1;
+  while (usedIds.has(nextId)) nextId++;
+
+  const { data, error } = await supabase
+    .from('models')
+    .insert({
+      id: nextId,
+      store_id: storeId,
+      brand_id: Number(brandId),
+      name: name.trim(),
+      ram: ram.trim(),
+      storage: storage.trim(),
+      color: color.trim()
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    brandId: data.brand_id,
+    name: data.name,
+    ram: data.ram || '',
+    storage: data.storage || '',
+    color: data.color || ''
+  };
+}
+
+function dbNextId(rows) {
+  return rows.reduce((max, row) => Math.max(max, Number(row.id) || 0), 0) + 1;
+}
+
+export async function deleteMobileStock(id) {
+  const { storeId } = await getStoreContext();
+
+  const { error } = await supabase
+    .from('mobile_stock')
+    .delete()
+    .eq('store_id', storeId)
+    .eq('id', id);
+
+  if (error) {
+    throw error;
+  }
+
+  return true;
 }
 
 export async function reset() {
