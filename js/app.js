@@ -1,4 +1,4 @@
-import { load, save, initDatabase } from './data.js';
+import { load, save, initDatabase, addModelToBrand } from './data.js';
 import { supabase, isCloudConfigured } from './supabase.js';
 
 let db = load();
@@ -28,7 +28,7 @@ function render() {
   app.innerHTML = `
     <div class="app">
       <aside class="sidebar">
-        <div class="brand">LAXMI COMMUNICATION<span>STORE ADMIN</span></div>
+        <div class="brand">Mobile<span>Store</span></div>
         <nav class="nav">
           ${[
             ['dashboard','🏠 Dashboard'],
@@ -59,6 +59,13 @@ function render() {
         <section id="content">${content()}</section>
       </main>
     </div>`;
+
+  if (page === 'add') {
+    setTimeout(() => {
+      loadModels();
+      updateImeiRequirement();
+    }, 0);
+  }
 }
 
 function title() {
@@ -77,8 +84,13 @@ function title() {
 }
 
 function stats() {
-  const sold = db.devices.filter(d => d.status === 'SOLD').length;
-  const stock = db.devices.filter(d => d.status === 'IN_STOCK').length;
+  const sold = db.devices
+    .filter(d => d.status === 'SOLD')
+    .reduce((a, d) => a + Number(d.quantity || 1), 0);
+
+  const stock = db.devices
+    .filter(d => d.status === 'IN_STOCK')
+    .reduce((a, d) => a + Number(d.quantity || 1), 0);
   const revenue = db.sales.reduce((a,x) => a + Number(x.sale || 0), 0);
   const profit = db.sales.reduce((a,x) => a + Number(x.profit || 0), 0);
   const folderQty = db.folderStock.reduce((a,x) => a + Number(x.quantity || 0), 0);
@@ -103,69 +115,297 @@ function card(a,b,c) {
   return `<div class="card"><small>${c} ${a}</small><div class="metric">${b}</div></div>`;
 }
 
-function last14DaysRevenue() {
-  const days = [];
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    days.push(d.toISOString().slice(0,10));
-  }
-
-  return days.map(date => {
-    const mobileRevenue = db.sales.filter(x => x.date === date).reduce((a,x) => a + Number(x.sale || 0), 0);
-    const folderNote = db.dailySales.filter(x => x.date === date).reduce((a,x) => a + Number(x.salePrice || 0) * Number(x.quantity || 0), 0);
-    const profit = db.sales.filter(x => x.date === date).reduce((a,x) => a + Number(x.profit || 0), 0)
-      + db.dailySales.filter(x => x.date === date).reduce((a,x) => a + Number(x.profit || 0), 0);
-    return { date, revenue: mobileRevenue + folderNote, profit };
-  });
-}
+/* =========================
+   DASHBOARD
+========================= */
 
 function dashboard() {
+
   const s = stats();
-  const trend = last14DaysRevenue();
-  const maxRevenue = Math.max(1, ...trend.map(t => t.revenue));
+
+  const chartData = getLast7DaysSales();
+
+  const maxSales =
+    Math.max(
+      ...chartData.map(x => x.amount),
+      1
+    );
 
   return `
+
     <div class="cards">
-      ${card('Total Mobile Devices',db.devices.length,'📱')}
-      ${card('Mobile Stock',s.stock,'📦')}
-      ${card('Folder Stock',s.folderQty,'📁')}
-      ${card('Revenue',money(s.revenue),'₹')}
+
+      ${card(
+        'Total Devices',
+        db.devices.reduce((a, d) => a + Number(d.quantity || 1), 0),
+        '📱'
+      )}
+
+      ${card(
+        'In Stock',
+        s.stock,
+        '📦'
+      )}
+
+      ${card(
+        'Sold',
+        s.sold,
+        '💰'
+      )}
+
+      ${card(
+        'Revenue',
+        money(s.revenue),
+        '₹'
+      )}
+
     </div>
+
 
     <div class="two">
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Sales Overview — Last 14 Days</h2>
-          <span class="admin" style="font-size:12px">Live from your sales data</span>
-        </div>
-        <div class="chart">
-          ${trend.map(t => {
-            const height = Math.round((t.revenue / maxRevenue) * 150) || 4;
-            const label = new Date(t.date).toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
-            return `
-              <div class="bar" style="height:${height}px" title="${label}: ${money(t.revenue)} revenue, ${money(t.profit)} profit">
-                <span>${label}</span>
-              </div>`;
-          }).join('')}
-        </div>
-      </div>
+
+      <!-- SALES GRAPH -->
 
       <div class="panel">
-        <div class="panel-head"><h2>Quick Actions</h2></div>
-        <button class="btn" onclick="go('add')">+ Add Mobile Stock</button><br><br>
-        <button class="btn secondary" onclick="go('folderStock')">📁 Folder Stock</button><br><br>
-        <button class="btn secondary" onclick="go('dailySales')">🧾 Daily Sales</button>
+
+        <div class="panel-head">
+
+          <h2>
+            Sales Overview
+          </h2>
+
+          <small>
+            Last 7 Days
+          </small>
+
+        </div>
+
+
+        <div class="chart">
+
+          ${chartData.map(day => {
+
+            const height =
+              day.amount > 0
+                ? Math.max(
+                    12,
+                    Math.round(
+                      (day.amount / maxSales) * 160
+                    )
+                  )
+                : 4;
+
+            return `
+
+              <div
+                class="bar"
+                title="${day.fullDate}: ${money(day.amount)}"
+                style="height:${height}px">
+
+                <span>
+                  ${day.label}
+                </span>
+
+              </div>
+
+            `;
+
+          }).join('')}
+
+        </div>
+
+
+        <div
+          style="
+            display:flex;
+            justify-content:space-between;
+            margin-top:12px;
+            font-size:13px;
+            opacity:.7;
+          "
+        >
+
+          <span>
+            Sales Revenue
+          </span>
+
+          <strong>
+            ${money(
+              chartData.reduce(
+                (total, x) =>
+                  total + x.amount,
+                0
+              )
+            )}
+          </strong>
+
+        </div>
+
       </div>
+
+
+      <!-- QUICK ACTIONS -->
+
+      <div class="panel">
+
+        <div class="panel-head">
+
+          <h2>
+            Quick Actions
+          </h2>
+
+        </div>
+
+
+        <button
+          class="btn"
+          onclick="go('add')">
+
+          + Add Mobile Stock
+
+        </button>
+
+
+        <br><br>
+
+
+        <button
+          class="btn secondary"
+          onclick="go('dailySales')">
+
+          🧾 Daily Sales
+
+        </button>
+
+
+        <br><br>
+
+
+        <button
+          class="btn secondary"
+          onclick="go('inventory')">
+
+          Manage Inventory
+
+        </button>
+
+      </div>
+
     </div>
 
+
+    <!-- RECENT SALES -->
+
     <div class="panel">
+
       <div class="panel-head">
-        <h2>Recent Mobile Sales</h2>
-        <button class="btn secondary" onclick="go('sold')">View All</button>
+
+        <h2>
+          Recent Mobile Sales
+        </h2>
+
+        <button
+          class="btn secondary"
+          onclick="go('sold')">
+
+          View All
+
+        </button>
+
       </div>
-      ${salesTable(db.sales.slice(-5).reverse())}
-    </div>`;
+
+
+      ${salesTable(
+        db.sales
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(b.date) -
+              new Date(a.date)
+          )
+          .slice(0, 5)
+      )}
+
+    </div>
+
+  `;
+}
+
+/* =========================
+   LAST 7 DAYS SALES
+========================= */
+
+function getLast7DaysSales() {
+
+  const result = [];
+
+  const today =
+    new Date();
+
+  for (let i = 6; i >= 0; i--) {
+
+    const date =
+      new Date(today);
+
+    date.setDate(
+      today.getDate() - i
+    );
+
+    const year =
+      date.getFullYear();
+
+    const month =
+      String(
+        date.getMonth() + 1
+      ).padStart(2, '0');
+
+    const day =
+      String(
+        date.getDate()
+      ).padStart(2, '0');
+
+    const fullDate =
+      `${year}-${month}-${day}`;
+
+
+    /*
+     * Get actual sales for this date
+     */
+
+    const amount =
+      db.sales
+        .filter(sale =>
+          sale.date === fullDate
+        )
+        .reduce(
+          (total, sale) =>
+            total +
+            Number(
+              sale.sale || 0
+            ),
+          0
+        );
+
+
+    result.push({
+
+      fullDate,
+
+      label:
+        date.toLocaleDateString(
+          'en-IN',
+          {
+            weekday: 'short'
+          }
+        ),
+
+      amount
+
+    });
+
+  }
+
+  return result;
 }
 
 function inventory() {
@@ -193,7 +433,7 @@ function deviceTable(rows) {
   return `
     <div class="table-wrap"><table>
       <thead><tr>
-        <th>IMEI</th><th>Brand</th><th>Model</th><th>Price</th><th>Status</th><th>Actions</th>
+        <th>IMEI</th><th>Brand</th><th>Model</th><th>Qty</th><th>Price</th><th>Status</th><th>Actions</th>
       </tr></thead>
       <tbody>
         ${rows.map(d => `
@@ -201,6 +441,7 @@ function deviceTable(rows) {
             <td>${escapeHtml(d.imei1)}</td>
             <td>${escapeHtml(brandName(db.models.find(m => m.id == d.modelId)?.brandId))}</td>
             <td>${escapeHtml(modelName(d.modelId))}</td>
+            <td>${Number(d.quantity || 1)}</td>
             <td>${money(d.selling)}</td>
             <td><span class="badge ${d.status.toLowerCase().replace('_','')}">${d.status}</span></td>
             <td class="actions">
@@ -212,109 +453,441 @@ function deviceTable(rows) {
     </table></div>`;
 }
 
-function stockCountFor(modelId) {
-  return db.devices.filter(d => d.modelId == modelId && d.status === 'IN_STOCK').length;
-}
-
 function add() {
-  const activeBrands = db.brands.filter(b => b.status === 'Active');
+  const activeBrands = db.brands
+    .filter(b => b.status === 'Active')
+    .sort((a, b) => Number(a.id) - Number(b.id));
+
+  const firstBrand =
+    activeBrands.length ? activeBrands[0] : null;
+
+  const firstBrandModels = firstBrand
+    ? db.models
+        .filter(m => String(m.brandId) === String(firstBrand.id))
+        .sort((a, b) => Number(a.id) - Number(b.id))
+    : [];
 
   return `
     <div class="panel">
-      <div class="panel-head"><h2>Current Stock for Selected Model</h2></div>
-      <div id="modelStockInfo" class="folder-summary">
-        <div class="folder-stat"><small>Model</small><strong id="stockInfoModel">—</strong></div>
-        <div class="folder-stat"><small>Currently In Stock</small><strong id="stockInfoQty">0</strong></div>
-      </div>
-    </div>
 
-    <div class="panel">
-      <form class="form" onsubmit="addDevice(event)">
-        <label>Brand
-          <select id="brandId" required onchange="loadModels()">
-            ${activeBrands.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('')}
+      <form
+        class="form"
+        onsubmit="addDevice(event)"
+      >
+
+        <!-- BRAND -->
+
+        <label>
+          Brand
+
+          <select
+            id="brandId"
+            required
+            onchange="handleBrandSelection()"
+          >
+
+            <option value="">
+              Select Brand
+            </option>
+
+            ${activeBrands.map(b => `
+              <option
+                value="${b.id}"
+                ${firstBrand && String(b.id) === String(firstBrand.id) ? 'selected' : ''}
+              >
+                ${escapeHtml(b.name)}
+              </option>
+            `).join('')}
+
+            
+
           </select>
+
         </label>
 
-        <label>Model
-          <select id="modelId" required onchange="onModelChange()"></select>
+
+        <!-- MODEL -->
+
+        <label>
+          Model
+
+          <select
+            id="modelId"
+            required
+            onchange="handleModelSelection()"
+          >
+
+            ${
+              firstBrand
+                ? `
+                  <option value="">
+                    Select Model
+                  </option>
+
+                  ${firstBrandModels.map(m => `
+                    <option value="${m.id}">
+                      ${escapeHtml(m.name)}
+                      ${
+                        m.ram || m.storage
+                          ? ` — ${escapeHtml(m.ram || '')}${
+                              m.ram && m.storage
+                                ? ' / '
+                                : ''
+                            }${escapeHtml(m.storage || '')}`
+                          : ''
+                      }
+                    </option>
+                  `).join('')}
+                `
+                : `
+                  <option value="">
+                    Select Brand First
+                  </option>
+                `
+            }
+
+            <option value="__ADD_MODEL__">
+              ＋ Add Model
+            </option>
+
+          </select>
+
         </label>
 
-        <div class="full" id="newModelBox" style="display:none">
-          <div class="form" style="grid-template-columns:repeat(4,1fr)">
-            <label>New Model Name<input id="newModelName" placeholder="Galaxy M15"></label>
-            <label>RAM<input id="newModelRam" placeholder="8 GB"></label>
-            <label>Storage<input id="newModelStorage" placeholder="128 GB"></label>
-            <label>Color<input id="newModelColor" placeholder="Black"></label>
-          </div>
+
+        <!-- IMEI 1 -->
+
+        <label>
+          IMEI 1
+
+          <input
+            id="imei1"
+            pattern="\\d{10,20}"
+            placeholder="Required when quantity is 1"
+          >
+
+        </label>
+
+
+        <!-- IMEI 2 -->
+
+        <label>
+          IMEI 2
+
+          <input
+            id="imei2"
+            pattern="\\d{10,20}"
+            placeholder="Optional"
+          >
+
+        </label>
+
+
+        <!-- RAM -->
+
+        <label>
+          RAM
+
+          <input
+            id="ram"
+            placeholder="Select a model"
+            readonly
+          >
+
+        </label>
+
+
+        <!-- STORAGE -->
+
+        <label>
+          Storage
+
+          <input
+            id="storage"
+            placeholder="Select a model"
+            readonly
+          >
+
+        </label>
+
+
+        <!-- QUANTITY -->
+
+        <label>
+          Quantity
+
+          <input
+            id="quantity"
+            type="number"
+            min="1"
+            value="1"
+            required
+            oninput="updateImeiRequirement()"
+          >
+
+        </label>
+
+
+        <!-- COLOR -->
+
+        <label>
+          Color
+
+          <input
+            id="color"
+            placeholder="Select a model"
+            readonly
+          >
+
+        </label>
+
+
+        <!-- PURCHASE PRICE -->
+
+        <label>
+          Purchase Price
+
+          <input
+            id="purchase"
+            type="number"
+            min="0"
+            required
+          >
+
+        </label>
+
+
+        <!-- SELLING PRICE -->
+
+        <label>
+          Selling Price
+
+          <input
+            id="selling"
+            type="number"
+            min="0"
+            required
+          >
+
+        </label>
+
+
+        <!-- SUPPLIER -->
+
+        <label>
+          Supplier
+
+          <input
+            id="supplier"
+            required
+          >
+
+        </label>
+
+
+        <!-- PURCHASE DATE -->
+
+        <label>
+          Purchase Date
+
+          <input
+            id="date"
+            type="date"
+            required
+            value="${today()}"
+          >
+
+        </label>
+
+
+        <!-- WARRANTY -->
+
+        <label>
+          Warranty (months)
+
+          <input
+            id="warranty"
+            type="number"
+            min="0"
+            value="12"
+          >
+
+        </label>
+
+
+        <div class="full">
+
+          <button
+            class="btn"
+            type="submit"
+          >
+            Add Mobile Stock
+          </button>
+
         </div>
 
-        <label>Quantity to Add<input id="quantity" type="number" min="1" value="1" required oninput="toggleImeiFields()"></label>
-        <label>Purchase Price (per unit)<input id="purchase" type="number" min="0" required></label>
-        <label>Selling Price (per unit)<input id="selling" type="number" min="0" required></label>
-        <label>Supplier<input id="supplier" required></label>
-        <label>Purchase Date<input id="date" type="date" required value="${today()}"></label>
-        <label>Warranty (months)<input id="warranty" type="number" min="0" value="12"></label>
-
-        <div class="full" id="imeiBox">
-          <label>IMEI 1 (leave blank if adding more than 1 quantity without individual IMEIs)<input id="imei1" pattern="\\d{10,20}"></label>
-          <label>IMEI 2<input id="imei2" pattern="\\d{10,20}"></label>
-        </div>
-
-        <div class="full"><button class="btn">Add Mobile Stock</button></div>
       </form>
-    </div>`;
+
+    </div>
+  `;
 }
 
-function loadModels() {
-  const el = document.getElementById('modelId');
-  const brand = document.getElementById('brandId')?.value;
-  if (!el || !brand) return;
+function loadModels(preferredModelId = null) {
+  const modelEl = document.getElementById('modelId');
+  const brandEl = document.getElementById('brandId');
 
-  const models = db.models.filter(m => m.brandId == brand);
+  if (!modelEl || !brandEl) return;
 
-  el.innerHTML = models
-    .map(m => `<option value="${m.id}">${escapeHtml(m.name)} — ${escapeHtml(m.ram)}/${escapeHtml(m.storage)} (${stockCountFor(m.id)} in stock)</option>`)
-    .join('') + `<option value="__new__">+ Add New Model…</option>`;
+  const brandId = brandEl.value;
 
-  onModelChange();
-}
-
-window.onModelChange = () => {
-  const modelId = document.getElementById('modelId')?.value;
-  const newBox = document.getElementById('newModelBox');
-  const infoModel = document.getElementById('stockInfoModel');
-  const infoQty = document.getElementById('stockInfoQty');
-  if (!modelId) return;
-
-  if (modelId === '__new__') {
-    if (newBox) newBox.style.display = '';
-    if (infoModel) infoModel.textContent = 'New model (not yet saved)';
-    if (infoQty) infoQty.textContent = '0';
+  // No brand selected: Add Model is still available, but
+  // the user must select a brand before creating the model.
+  if (!brandId || brandId === '__ADD_BRAND__') {
+    modelEl.innerHTML = `
+      <option value="">Select Brand First</option>
+      <option value="__ADD_MODEL__">＋ Add Model</option>
+    `;
+    clearModelDetails();
     return;
   }
 
-  if (newBox) newBox.style.display = 'none';
-  const model = db.models.find(m => m.id == modelId);
-  if (infoModel) infoModel.textContent = model ? `${brandName(model.brandId)} ${model.name}` : '—';
-  if (infoQty) infoQty.textContent = stockCountFor(modelId);
+  // Only show models belonging to the currently selected brand.
+  const models = db.models
+    .filter(m => String(m.brandId) === String(brandId))
+    .sort((a, b) => Number(a.id) - Number(b.id));
+
+  modelEl.innerHTML = `
+    <option value="">
+      ${models.length ? 'Select Model' : 'No models available'}
+    </option>
+
+    ${models.map(m => `
+      <option value="${m.id}">
+        ${escapeHtml(m.name)}${
+          m.ram || m.storage
+            ? ` — ${escapeHtml(m.ram || '')}${m.ram && m.storage ? ' / ' : ''}${escapeHtml(m.storage || '')}`
+            : ''
+        }
+      </option>
+    `).join('')}
+
+    <option value="__ADD_MODEL__">＋ Add Model</option>
+  `;
+
+  // Select a newly-created model when requested.
+  if (
+    preferredModelId !== null &&
+    models.some(m => String(m.id) === String(preferredModelId))
+  ) {
+    modelEl.value = String(preferredModelId);
+    selectModelDetails();
+    return;
+  }
+
+  clearModelDetails();
+}
+
+/* =========================
+   BRAND SELECTION
+========================= */
+
+window.handleBrandSelection = async () => {
+  const brandEl = document.getElementById('brandId');
+  if (!brandEl) return;
+
+  // Optional: allow adding a brand directly from the Brand dropdown.
+  if (brandEl.value === '__ADD_BRAND__') {
+    brandEl.value = '';
+    await window.addBrand();
+    return;
+  }
+
+  loadModels();
 };
 
-window.toggleImeiFields = () => {
-  const qty = Number(document.getElementById('quantity')?.value || 1);
+/* =========================
+   MODEL SELECTION
+========================= */
+
+window.handleModelSelection = async () => {
+  const modelEl = document.getElementById('modelId');
+  const brandEl = document.getElementById('brandId');
+
+  if (!modelEl || !brandEl) return;
+
+  // User selected ＋ Add Model.
+  if (modelEl.value === '__ADD_MODEL__') {
+    const brandId = brandEl.value;
+
+    if (!brandId || brandId === '__ADD_BRAND__') {
+      modelEl.value = '';
+      alert('Please select a brand first.');
+      loadModels();
+      return;
+    }
+
+    await window.addModel(Number(brandId));
+    return;
+  }
+
+  selectModelDetails();
+};
+
+// Keep the older function name working in case another part of the app uses it.
+window.handleModelChange = window.handleModelSelection;
+
+function selectModelDetails() {
+  const modelId = document.getElementById('modelId')?.value;
+
+  if (!modelId || modelId === '__ADD_MODEL__') {
+    clearModelDetails();
+    return;
+  }
+
+  const model = db.models.find(m => String(m.id) === String(modelId));
+
+  if (!model) {
+    clearModelDetails();
+    return;
+  }
+
+  const ram = document.getElementById('ram');
+  const storage = document.getElementById('storage');
+  const color = document.getElementById('color');
+
+  if (ram) ram.value = model.ram || '';
+  if (storage) storage.value = model.storage || '';
+  if (color) color.value = model.color || '';
+}
+
+function clearModelDetails() {
+  const ram = document.getElementById('ram');
+  const storage = document.getElementById('storage');
+  const color = document.getElementById('color');
+
+  if (ram) ram.value = '';
+  if (storage) storage.value = '';
+  if (color) color.value = '';
+}
+
+function updateImeiRequirement() {
+  const quantity = Number(document.getElementById('quantity')?.value || 1);
   const imei1 = document.getElementById('imei1');
-  // IMEI is only sensible/required when adding a single unit.
-  if (imei1) imei1.required = qty === 1;
-};
 
-function folderStockCountFor(modelId) {
-  return db.folderStock.filter(x => x.modelId == modelId && x.status === 'IN_STOCK').reduce((a,x) => a + Number(x.quantity || 0), 0);
+  if (!imei1) return;
+
+  if (quantity === 1) {
+    imei1.required = true;
+    imei1.placeholder = 'Required when quantity is 1';
+  } else {
+    imei1.required = false;
+    imei1.placeholder = 'Optional for bulk quantity';
+  }
 }
 
 function folderStock() {
   const qty = db.folderStock.reduce((a,x) => a + Number(x.quantity || 0), 0);
   const value = db.folderStock.reduce((a,x) => a + Number(x.purchase || 0) * Number(x.quantity || 0), 0);
-  const activeBrands = db.brands.filter(b => b.status === 'Active');
 
   return `
     <div class="folder-summary">
@@ -324,38 +897,13 @@ function folderStock() {
     </div>
 
     <div class="panel">
-      <div class="panel-head"><h2>Current Stock for Selected Model</h2></div>
-      <div id="folderStockInfo" class="folder-summary">
-        <div class="folder-stat"><small>Model</small><strong id="folderStockInfoModel">—</strong></div>
-        <div class="folder-stat"><small>Currently In Stock</small><strong id="folderStockInfoQty">0</strong></div>
-      </div>
-    </div>
-
-    <div class="panel">
       <div class="panel-head">
         <h2>Add Folder Stock</h2>
       </div>
 
       <form class="form" onsubmit="addFolder(event)">
-        <label>Brand
-          <select id="folderBrandId" required onchange="loadFolderModels()">
-            ${activeBrands.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('')}
-          </select>
-        </label>
-
-        <label>Model
-          <select id="folderModelId" required onchange="onFolderModelChange()"></select>
-        </label>
-
-        <div class="full" id="newFolderModelBox" style="display:none">
-          <div class="form" style="grid-template-columns:repeat(4,1fr)">
-            <label>New Model Name<input id="newFolderModelName" placeholder="Galaxy M15"></label>
-            <label>RAM<input id="newFolderModelRam" placeholder="8 GB"></label>
-            <label>Storage<input id="newFolderModelStorage" placeholder="128 GB"></label>
-            <label>Color<input id="newFolderModelColor" placeholder="Black"></label>
-          </div>
-        </div>
-
+        <label>Folder Name<input id="folderName" placeholder=" " required></label>
+        <label>Folder Type<input id="folderType" placeholder=" "></label>
         <label>Quantity<input id="folderQuantity" type="number" min="1" value="1" required></label>
         <label>Purchase Price<input id="folderPurchase" type="number" min="0" required></label>
         <label>Selling Price<input id="folderSelling" type="number" min="0" required></label>
@@ -372,46 +920,12 @@ function folderStock() {
       </div>
 
       <div class="toolbar">
-        <input id="folderSearch" placeholder="Search brand or model" oninput="filterFolders()">
+        <input id="folderSearch" placeholder="Search folder or supplier" oninput="filterFolders()">
       </div>
 
       <div id="folderTable">${folderTable(db.folderStock)}</div>
     </div>`;
 }
-
-function loadFolderModels() {
-  const el = document.getElementById('folderModelId');
-  const brand = document.getElementById('folderBrandId')?.value;
-  if (!el || !brand) return;
-
-  const models = db.models.filter(m => m.brandId == brand);
-
-  el.innerHTML = models
-    .map(m => `<option value="${m.id}">${escapeHtml(m.name)} — ${escapeHtml(m.ram)}/${escapeHtml(m.storage)} (${folderStockCountFor(m.id)} in stock)</option>`)
-    .join('') + `<option value="__new__">+ Add New Model…</option>`;
-
-  onFolderModelChange();
-}
-
-window.onFolderModelChange = () => {
-  const modelId = document.getElementById('folderModelId')?.value;
-  const newBox = document.getElementById('newFolderModelBox');
-  const infoModel = document.getElementById('folderStockInfoModel');
-  const infoQty = document.getElementById('folderStockInfoQty');
-  if (!modelId) return;
-
-  if (modelId === '__new__') {
-    if (newBox) newBox.style.display = '';
-    if (infoModel) infoModel.textContent = 'New model (not yet saved)';
-    if (infoQty) infoQty.textContent = '0';
-    return;
-  }
-
-  if (newBox) newBox.style.display = 'none';
-  const model = db.models.find(m => m.id == modelId);
-  if (infoModel) infoModel.textContent = model ? `${brandName(model.brandId)} ${model.name}` : '—';
-  if (infoQty) infoQty.textContent = folderStockCountFor(modelId);
-};
 
 function folderTable(rows) {
   if (!rows.length) return `<div class="empty">No folder stock found.</div>`;
@@ -419,14 +933,14 @@ function folderTable(rows) {
   return `
     <div class="table-wrap"><table>
       <thead><tr>
-        <th>Date</th><th>Brand</th><th>Model</th><th>Qty</th><th>Purchase</th><th>Selling</th><th>Supplier</th><th>Stock Value</th><th>Action</th>
+        <th>Date</th><th>Folder</th><th>Type</th><th>Qty</th><th>Purchase</th><th>Selling</th><th>Supplier</th><th>Stock Value</th><th>Action</th>
       </tr></thead>
       <tbody>
         ${rows.slice().reverse().map(x => `
           <tr>
             <td>${escapeHtml(x.date)}</td>
-            <td>${escapeHtml(brandName(db.models.find(m => m.id == x.modelId)?.brandId))}</td>
-            <td>${escapeHtml(modelName(x.modelId))}</td>
+            <td>${escapeHtml(x.name)}</td>
+            <td>${escapeHtml(x.type || '-')}</td>
             <td>${x.quantity}</td>
             <td>${money(x.purchase)}</td>
             <td>${money(x.selling)}</td>
@@ -439,24 +953,52 @@ function folderTable(rows) {
 }
 
 function brands() {
+  const orderedBrands = db.brands
+    .slice()
+    .sort((a, b) => Number(a.id) - Number(b.id));
+
   return `
     <div class="panel">
       <div class="panel-head">
         <h2>Mobile Brands</h2>
         <button class="btn" onclick="addBrand()">+ Add Brand</button>
       </div>
+
       <div class="table-wrap"><table>
-        <thead><tr><th>ID</th><th>Brand</th><th>Models</th><th>Status</th><th>Action</th></tr></thead>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Brand</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
         <tbody>
-          ${db.brands.map(b => `
+          ${orderedBrands.map((b, index) => `
             <tr>
-              <td>${b.id}</td><td>${escapeHtml(b.name)}</td>
-              <td>${db.models.filter(m => m.brandId == b.id).length}</td>
-              <td>${b.status}</td>
-              <td><button class="btn secondary" onclick="toggleBrand(${b.id})">${b.status === 'Active' ? 'Deactivate' : 'Activate'}</button></td>
-            </tr>`).join('')}
+              <td>${index + 1}</td>
+              <td><strong>${escapeHtml(b.name)}</strong></td>
+              <td>
+                <span class="badge ${String(b.status).toLowerCase() === 'active' ? 'active' : 'inactive'}">
+                  ${escapeHtml(b.status || 'Active')}
+                </span>
+              </td>
+              <td>
+                <button class="btn secondary" onclick="toggleBrandStatus(${b.id})">
+                  ${String(b.status).toLowerCase() === 'active' ? 'Deactivate' : 'Activate'}
+                </button>
+              </td>
+            </tr>
+          `).join('')}
         </tbody>
       </table></div>
+
+      <div style="margin-top:18px; padding:14px 16px; border-radius:10px; background:rgba(0,0,0,.03);">
+        <strong>How to add models:</strong>
+        Open <b>Add Mobile Stock</b>, select a brand, then choose
+        <b>＋ Add Model</b> from the Model dropdown.
+        Models are kept out of this Brands table so the page stays clean.
+      </div>
     </div>`;
 }
 
@@ -671,7 +1213,7 @@ window.generateMonthlyPDF = () => {
   const totalProfit = rows.reduce((a,x) => a + Number(x.profit || 0),0);
 
   doc.setFontSize(20);
-  doc.text('LAXMI COMMUNICATION',14,15);
+  doc.text('MobileStore',14,15);
   doc.setFontSize(15);
   doc.text(`Monthly Daily Sales Report - ${monthName} ${year}`,14,24);
   doc.setFontSize(10);
@@ -705,8 +1247,6 @@ window.generateMonthlyPDF = () => {
 window.addFolder = async event => {
   event.preventDefault();
 
-  let modelIdRaw = document.getElementById('folderModelId').value;
-  const brandId = Number(document.getElementById('folderBrandId').value);
   const quantity = Number(document.getElementById('folderQuantity').value);
   const purchase = Number(document.getElementById('folderPurchase').value);
   const selling = Number(document.getElementById('folderSelling').value);
@@ -716,31 +1256,10 @@ window.addFolder = async event => {
     return;
   }
 
-  let modelId;
-
-  if (modelIdRaw === '__new__') {
-    const name = document.getElementById('newFolderModelName').value.trim();
-    if (!name) {
-      alert('Please enter a name for the new model.');
-      return;
-    }
-
-    modelId = Date.now();
-    db.models.push({
-      id: modelId,
-      brandId,
-      name,
-      ram: document.getElementById('newFolderModelRam').value.trim(),
-      storage: document.getElementById('newFolderModelStorage').value.trim(),
-      color: document.getElementById('newFolderModelColor').value.trim()
-    });
-  } else {
-    modelId = Number(modelIdRaw);
-  }
-
   db.folderStock.push({
     id: Date.now(),
-    modelId,
+    name: document.getElementById('folderName').value.trim(),
+    type: document.getElementById('folderType').value.trim(),
     quantity,
     purchase,
     selling,
@@ -756,11 +1275,9 @@ window.addFolder = async event => {
 
 window.filterFolders = () => {
   const q = document.getElementById('folderSearch')?.value.toLowerCase().trim() || '';
-  const rows = db.folderStock.filter(x => {
-    const model = db.models.find(m => m.id == x.modelId);
-    const brand = brandName(model?.brandId);
-    return `${brand} ${modelName(x.modelId)} ${x.supplier}`.toLowerCase().includes(q);
-  });
+  const rows = db.folderStock.filter(x =>
+    `${x.name} ${x.type} ${x.supplier}`.toLowerCase().includes(q)
+  );
   document.getElementById('folderTable').innerHTML = folderTable(rows);
 };
 
@@ -778,16 +1295,13 @@ window.deleteFolder = async id => {
 window.exportFolderExcel = () => {
   if (!db.folderStock.length) return alert('There is no folder stock to export.');
 
-  const rows = db.folderStock.map(x => {
-    const model = db.models.find(m => m.id == x.modelId);
-    return {
-      Date:x.date, Brand:brandName(model?.brandId), Model:modelName(x.modelId),
-      Quantity:x.quantity, 'Purchase Price':x.purchase,
-      'Selling Price':x.selling,
-      'Stock Value':Number(x.purchase)*Number(x.quantity),
-      Supplier:x.supplier || '', Status:x.status
-    };
-  });
+  const rows = db.folderStock.map(x => ({
+    Date:x.date, Folder:x.name, Type:x.type || '',
+    Quantity:x.quantity, 'Purchase Price':x.purchase,
+    'Selling Price':x.selling,
+    'Stock Value':Number(x.purchase)*Number(x.quantity),
+    Supplier:x.supplier || '', Status:x.status
+  }));
 
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -810,118 +1324,288 @@ window.filterInventory = () => {
 window.addDevice = async e => {
   e.preventDefault();
 
-  let modelIdRaw = document.getElementById('modelId').value;
-  const brandId = Number(document.getElementById('brandId').value);
-  const quantity = Number(document.getElementById('quantity').value) || 1;
+  const modelId = Number(document.getElementById('modelId').value);
+  const quantity = Number(document.getElementById('quantity').value);
   const imei1 = document.getElementById('imei1').value.trim();
   const imei2 = document.getElementById('imei2').value.trim();
 
-  if (quantity > 1 && imei1) {
-    alert('IMEI can only be set when adding a single unit (quantity = 1). Leave IMEI blank for bulk quantity, or add units one at a time with their own IMEIs.');
+  if (!modelId) {
+    alert('Please select a model.');
     return;
   }
 
-  let modelId;
-
-  if (modelIdRaw === '__new__') {
-    const name = document.getElementById('newModelName').value.trim();
-    if (!name) {
-      alert('Please enter a name for the new model.');
-      return;
-    }
-
-    modelId = Date.now();
-    db.models.push({
-      id: modelId,
-      brandId,
-      name,
-      ram: document.getElementById('newModelRam').value.trim(),
-      storage: document.getElementById('newModelStorage').value.trim(),
-      color: document.getElementById('newModelColor').value.trim()
-    });
-  } else {
-    modelId = Number(modelIdRaw);
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    alert('Quantity must be at least 1.');
+    return;
   }
 
-  const purchase = Number(document.getElementById('purchase').value);
-  const selling = Number(document.getElementById('selling').value);
-  const supplier = document.getElementById('supplier').value;
-  const date = document.getElementById('date').value;
-  const warranty = Number(document.getElementById('warranty').value);
-
-  for (let i = 0; i < quantity; i++) {
-    db.devices.push({
-      id: Date.now() + i,
-      modelId,
-      imei1: i === 0 ? imei1 : '',
-      imei2: i === 0 ? imei2 : '',
-      purchase,
-      selling,
-      supplier,
-      date,
-      warranty,
-      status: 'IN_STOCK'
-    });
+  if (quantity === 1 && !imei1) {
+    alert('IMEI 1 is required when quantity is 1.');
+    return;
   }
 
-  await save(db);
-  alert(`${quantity} unit(s) of mobile stock added successfully`);
-  go('inventory');
+  if (imei1 && !/^\d{10,20}$/.test(imei1)) {
+    alert('IMEI 1 must contain 10 to 20 digits.');
+    return;
+  }
+
+  if (imei2 && !/^\d{10,20}$/.test(imei2)) {
+    alert('IMEI 2 must contain 10 to 20 digits.');
+    return;
+  }
+
+  if (imei1 && db.devices.some(d => String(d.imei1 || '') === imei1)) {
+    alert('IMEI 1 already exists in inventory.');
+    return;
+  }
+
+  if (imei2 && db.devices.some(d => String(d.imei2 || '') === imei2)) {
+    alert('IMEI 2 already exists in inventory.');
+    return;
+  }
+
+  const usedIds = new Set(
+    db.devices.map(d => Number(d.id)).filter(Number.isFinite)
+  );
+
+  let nextId = 1;
+  while (usedIds.has(nextId)) nextId++;
+
+  db.devices.push({
+    id: nextId,
+    modelId,
+    quantity,
+    imei1,
+    imei2,
+    purchase: Number(document.getElementById('purchase').value),
+    selling: Number(document.getElementById('selling').value),
+    supplier: document.getElementById('supplier').value.trim(),
+    date: document.getElementById('date').value,
+    warranty: Number(document.getElementById('warranty').value),
+    status: 'IN_STOCK'
+  });
+
+  try {
+    await save(db);
+    alert('Mobile stock added successfully');
+    go('inventory');
+  } catch (error) {
+    console.error('Add mobile stock error:', error);
+    alert('Unable to save mobile stock: ' + (error.message || error));
+  }
 };
 
 window.sell = async id => {
-  const d = db.devices.find(x => x.id === id);
+  const d = db.devices.find(x => Number(x.id) === Number(id));
   if (!d) return;
 
-  const customer = prompt('Customer name (optional):','Walk-in Customer') || 'Walk-in Customer';
-  const payment = prompt('Payment method:','UPI') || 'UPI';
-  const sale = Number(prompt(`Selling price (default ${d.selling}):`,d.selling));
+  const available = Number(d.quantity || 1);
 
-  if (!sale) return;
-
-  d.status='SOLD';
-
-  db.sales.push({
-    id:Date.now(), deviceId:id, sale, customer, phone:'',
-    payment, date:today(), profit:sale-d.purchase
-  });
-
-  await save(db);
-  render();
-};
-
-window.removeDevice = async id => {
-  const d = db.devices.find(x => x.id === id);
-  if (!d) return;
-
-  if (d.status === 'SOLD') {
-    alert('Sold devices cannot be removed from active inventory.');
+  if (d.status !== 'IN_STOCK' || available < 1) {
+    alert('This mobile is not available in stock.');
     return;
   }
 
-  if (confirm('Mark this device as REMOVED?')) {
-    d.status='REMOVED';
+  const customer = prompt('Customer name (optional):', 'Walk-in Customer') || 'Walk-in Customer';
+  const payment = prompt('Payment method:', 'UPI') || 'UPI';
+  const sale = Number(prompt(`Selling price (default ${d.selling}):`, d.selling));
+
+  if (!Number.isFinite(sale) || sale <= 0) return;
+
+  const profit = sale - Number(d.purchase || 0);
+
+  d.quantity = Math.max(0, available - 1);
+  d.status = d.quantity === 0 ? 'SOLD' : 'IN_STOCK';
+
+  const usedIds = new Set(
+    db.sales.map(x => Number(x.id)).filter(Number.isFinite)
+  );
+
+  let nextSaleId = 1;
+  while (usedIds.has(nextSaleId)) nextSaleId++;
+
+  db.sales.push({
+    id: nextSaleId,
+    deviceId: d.id,
+    sale,
+    customer,
+    phone: '',
+    payment,
+    date: today(),
+    profit
+  });
+
+  try {
     await save(db);
     render();
+  } catch (error) {
+    console.error('Sell mobile error:', error);
+    alert('Unable to save sale: ' + (error.message || error));
+  }
+};
+
+window.removeDevice = async (id) => {
+
+  const confirmed = confirm(
+    'Are you sure you want to remove this mobile stock?'
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+
+    await deleteMobileStock(id);
+
+    // Remove from local state
+    db.devices = db.devices.filter(
+      d => Number(d.id) !== Number(id)
+    );
+
+    await save(db);
+
+    alert('Mobile stock removed successfully.');
+
+    render();
+
+  } catch (error) {
+
+    console.error(
+      'Delete mobile stock error:',
+      error
+    );
+
+    alert(
+      'Unable to delete mobile stock: ' +
+      error.message
+    );
   }
 };
 
 window.addBrand = async () => {
   const name = prompt('Brand name:');
-  if (!name) return;
+  if (!name || !name.trim()) return;
 
-  db.brands.push({id:Date.now(),name,status:'Active'});
-  await save(db);
-  render();
+  const cleanName = name.trim();
+
+  if (db.brands.some(b => b.name.trim().toLowerCase() === cleanName.toLowerCase())) {
+    alert('This brand already exists.');
+    return;
+  }
+
+  try {
+    const usedIds = new Set(
+      db.brands.map(b => Number(b.id)).filter(Number.isFinite)
+    );
+
+    let nextId = 1;
+    while (usedIds.has(nextId)) nextId++;
+
+    db.brands.push({
+      id: nextId,
+      name: cleanName,
+      status: 'Active'
+    });
+
+    await save(db);
+    render();
+  } catch (error) {
+    console.error('Add brand error:', error);
+    alert('Unable to add brand: ' + (error.message || error));
+  }
 };
 
-window.toggleBrand = async id => {
-  const b = db.brands.find(x => x.id === id);
-  if (!b) return;
+window.toggleBrandStatus = async brandId => {
+  const brand = db.brands.find(b => Number(b.id) === Number(brandId));
+  if (!brand) return;
 
-  b.status = b.status === 'Active' ? 'Inactive' : 'Active';
-  await save(db);
-  render();
+  const isActive = String(brand.status).toLowerCase() === 'active';
+  const newStatus = isActive ? 'Inactive' : 'Active';
+
+  if (!confirm(`${newStatus === 'Inactive' ? 'Deactivate' : 'Activate'} ${brand.name}?`)) {
+    return;
+  }
+
+  try {
+    brand.status = newStatus;
+    await save(db);
+    render();
+  } catch (error) {
+    console.error('Brand status error:', error);
+    alert('Unable to update brand status: ' + (error.message || error));
+  }
+};
+
+window.addModel = async brandId => {
+  const brand = db.brands.find(
+    b => Number(b.id) === Number(brandId)
+  );
+
+  if (!brand) return;
+
+  if (String(brand.status).toLowerCase() !== 'active') {
+    alert('Please activate this brand before adding a model.');
+    return;
+  }
+
+  const name = prompt(`Enter model name for ${brand.name}:`);
+  if (!name || !name.trim()) return;
+
+  const cleanName = name.trim();
+
+  // Prevent duplicate model names under the same brand.
+  if (db.models.some(m =>
+    Number(m.brandId) === Number(brandId) &&
+    String(m.name || '').trim().toLowerCase() === cleanName.toLowerCase()
+  )) {
+    alert('This model already exists under this brand.');
+    return;
+  }
+
+  const ram = prompt('RAM (optional):', '8 GB') || '';
+  const storage = prompt('Storage (optional):', '128 GB') || '';
+  const color = prompt('Color (optional):', '') || '';
+
+  try {
+    const model = await addModelToBrand({
+      brandId: Number(brandId),
+      name: cleanName,
+      ram: ram.trim(),
+      storage: storage.trim(),
+      color: color.trim()
+    });
+
+    // Keep local state in sync.
+    if (!db.models.some(m => Number(m.id) === Number(model.id))) {
+      db.models.push(model);
+    }
+
+    await save(db);
+
+    alert(`${model.name} added under ${brand.name}.`);
+
+    // If currently on Add Mobile Stock, rebuild the form and
+    // automatically select the newly-created model.
+    if (page === 'add') {
+      render();
+
+      setTimeout(() => {
+        const brandEl = document.getElementById('brandId');
+
+        if (brandEl) {
+          brandEl.value = String(brandId);
+        }
+
+        loadModels(model.id);
+      }, 0);
+    } else {
+      render();
+    }
+  } catch (error) {
+    console.error('Add model error:', error);
+    alert('Unable to add model: ' + (error.message || error));
+  }
 };
 
 function suppliers() {
@@ -976,14 +1660,14 @@ function reports() {
       ${card('Revenue',money(s.revenue),'💰')}
       ${card('Profit',money(s.profit),'📈')}
       ${card('Average Sale',money(s.sold ? s.revenue/s.sold : 0),'🧮')}
-      ${card('Mobile Inventory Value',money(db.devices.filter(d=>d.status==='IN_STOCK').reduce((a,d)=>a+d.purchase,0)),'📦')}
+      ${card('Mobile Inventory Value',money(db.devices.filter(d=>d.status==='IN_STOCK').reduce((a,d)=>a + d.purchase * Number(d.quantity || 1),0)),'📦')}
     </div>
 
     <div class="panel">
       <h2>Store Summary</h2>
       <p>Total brands: <b>${db.brands.length}</b></p>
       <p>Total models: <b>${db.models.length}</b></p>
-      <p>Total mobile devices: <b>${db.devices.length}</b></p>
+      <p>Total mobile devices: <b>${db.devices.reduce((a,d)=>a + Number(d.quantity || 1),0)}</b></p>
       <p>Available mobile devices: <b>${s.stock}</b></p>
       <p>Sold devices: <b>${s.sold}</b></p>
       <p>Total folder quantity: <b>${s.folderQty}</b></p>
@@ -997,12 +1681,10 @@ window.go = p => {
   render();
 
   if (p === 'add') setTimeout(loadModels,0);
-  if (p === 'folderStock') setTimeout(loadFolderModels,0);
-
 };
 
 window.logout = async () => {
-  if (!confirm('Log out of LAXMI COMMUNICATION Admin?')) return;
+  if (!confirm('Log out of MobileStore Admin?')) return;
 
   if (isCloudConfigured() && supabase) {
     await supabase.auth.signOut();
@@ -1019,7 +1701,7 @@ function showLogin(message = '') {
   app.innerHTML = `
     <div class="login">
       <div class="login-box">
-        <h1>📱 LAXMI COMMUNICATION</h1>
+        <h1>📱 MobileStore Admin</h1>
         <p>Owner inventory & sales management</p>
 
         <label>Email
@@ -1056,7 +1738,7 @@ async function boot() {
   app.innerHTML = `
     <div class="login">
       <div class="login-box">
-        <h1>📱 LAXMI COMMUNICATION</h1>
+        <h1>📱 MobileStore Admin</h1>
         <p>Connecting to cloud database…</p>
       </div>
     </div>`;
